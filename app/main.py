@@ -6,7 +6,7 @@ import torch
 app = FastAPI(title="Tiny GPT2 Next Word Predictor")
 
 # Load tokenizer and model once (small model)
-MODEL_NAME = "sshleifer/tiny-gpt2"
+MODEL_NAME = "distilgpt2"
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
 
@@ -38,6 +38,10 @@ async def predict_next_word(req: PredictRequest):
     generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
 
     return {"input": req.text, "predicted": generated_text.strip()}
+
+@app.get("/demo")
+async def root():
+    return {"message": "Welcome to Tiny GPT2 Next Word Predictor API. Use POST /predict with JSON {text: 'your input'}"}
 
 @app.get("/")
 async def root():
