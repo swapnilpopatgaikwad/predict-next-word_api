@@ -1,34 +1,44 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from transformers import GPT2Tokenizer, GPT2LMHeadModel
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 
-# Load lightweight model
-tokenizer = GPT2Tokenizer.from_pretrained("distilgpt2")
-model = GPT2LMHeadModel.from_pretrained("distilgpt2")
+app = FastAPI(title="Tiny GPT2 Next Word Predictor")
 
-# Set to eval mode to disable training behaviors
-model.eval()
+# Load tokenizer and model once (small model)
+MODEL_NAME = "sshleifer/tiny-gpt2"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
 
-app = FastAPI(title="Predict Next Word API")
-
-
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to Predict Next Word API"}
-
-@app.get("/demo")
-def read_root():
-    return {"message": "Welcome to Predict Next Word API"}
-
-
-class InputText(BaseModel):
+class PredictRequest(BaseModel):
     text: str
+    max_new_tokens: int = 5  # number of tokens to generate
 
 @app.post("/predict")
-def predict_next_word(input: InputText):
-    inputs = tokenizer.encode(input.text, return_tensors="pt")
-    outputs = model.generate(inputs, max_length=inputs.shape[1] + 1, do_sample=True)
-    next_token_id = outputs[0][-1].item()
-    next_word = tokenizer.decode([next_token_id])
-    return {"input": input.text, "next_word": next_word.strip()}
+async def predict_next_word(req: PredictRequest):
+    if not req.text or req.text.strip() == "":
+        raise HTTPException(status_code=400, detail="Input text cannot be empty")
+
+    inputs = tokenizer.encode(req.text, return_tensors="pt")
+
+    # Limit input length to avoid memory spike
+    if inputs.size(1) > 30:
+        inputs = inputs[:, -30:]  # last 30 tokens only
+
+    # Generate output tokens
+    with torch.no_grad():
+        output = model.generate(
+            inputs,
+            max_new_tokens=req.max_new_tokens,
+            do_sample=False,  # deterministic output
+            pad_token_id=tokenizer.eos_token_id,
+        )
+
+    generated_tokens = output[0][inputs.size(1):]
+    generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+
+    return {"input": req.text, "predicted": generated_text.strip()}
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to Tiny GPT2 Next Word Predictor API. Use POST /predict with JSON {text: 'your input'}"}
